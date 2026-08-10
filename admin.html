@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>청소년 책사줄게 - 서점 관리자 시스템</title>
-    <!-- 카카오 지도 API (주소를 좌표로 변환하기 위해 추가) -->
+    <!-- 카카오 지도 API (주소 -> 좌표 변환용) -->
     <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=1c9c405c6220a2a05886c680d8690e6a&libraries=services"></script>
     <style>
         * { box-sizing: border-box; }
@@ -14,18 +14,33 @@
         .form-group { margin-bottom: 15px; }
         label { display: block; font-weight: bold; margin-bottom: 5px; color: #333; }
         input, select, textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
-        button { width: 100%; padding: 12px; background-color: #007bff; color: white; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; }
-        button:hover { background-color: #0056b3; }
+        
+        .btn-group { display: flex; gap: 10px; margin-top: 15px; }
+        .btn-save { flex: 2; padding: 12px; background-color: #007bff; color: white; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; }
+        .btn-delete { flex: 1; padding: 12px; background-color: #dc3545; color: white; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; }
+        .btn-save:hover { background-color: #0056b3; }
+        .btn-delete:hover { background-color: #bd2130; }
+        
         .status-msg { text-align: center; margin-top: 15px; font-weight: bold; }
+        .preview-box { margin-top: 20px; padding: 15px; background: #e9ecef; border-radius: 8px; }
+        .preview-title { font-weight: bold; margin-bottom: 8px; color: #495057; }
+        .coords-badge { display: inline-block; background: #6c757d; color: white; padding: 3px 8px; border-radius: 4px; font-size: 12px; margin-top: 5px; }
     </style>
 </head>
 <body>
 
 <div class="admin-container">
-    <h2>⚙️ 서점 잔액 & 정보 관리 (관리자용)</h2>
+    <h2>📑 서점 정보 & 기부금 관리</h2>
     
     <div class="form-group">
-        <label for="citySelect">지역 (시/군)</label>
+        <label for="selectStore">관리할 서점 선택</label>
+        <select id="selectStore">
+            <option value="">-- 직접 입력 또는 선택 --</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label for="citySelect">지역 (경기도 시/군)</label>
         <select id="citySelect">
             <option value="가평군">가평군</option><option value="고양시">고양시</option><option value="과천시">과천시</option>
             <option value="광명시">광명시</option><option value="광주시" selected>광주시</option><option value="구리시">구리시</option>
@@ -47,27 +62,37 @@
     </div>
 
     <div class="form-group">
-        <label for="storeAddress">서점 도로명 주소</label>
+        <label for="storeAddress">서점 도로명 주소 (지도 표시용)</label>
         <input type="text" id="storeAddress" placeholder="예: 경기 광주시 퇴촌면 천진암로 596 1층">
     </div>
 
     <div class="form-group">
-        <label for="storeBalance">실시간 잔액 (원)</label>
+        <label for="storeBalance">현재 기부금 잔액 (원)</label>
         <input type="number" id="storeBalance" placeholder="500000">
     </div>
 
     <div class="form-group">
-        <label for="storePolicy">운영 정책 및 참고사항</label>
-        <textarea id="storePolicy" rows="4" placeholder="- 구매대상&#10;- 구매품목"></textarea>
+        <label for="storePolicy">서점 운영 정책</label>
+        <textarea id="storePolicy" rows="4" placeholder="운영 정책 내용을 입력하세요."></textarea>
     </div>
 
-    <button id="saveBtn">서점 정보 / 좌표 저장하기</button>
+    <div class="btn-group">
+        <button id="saveBtn" class="btn-save">정보 저장 / 수정</button>
+        <button id="deleteBtn" class="btn-delete">서점 삭제</button>
+    </div>
+
     <div id="statusMsg" class="status-msg"></div>
+
+    <!-- 좌표 확인용 미리보기 박스 -->
+    <div class="preview-box">
+        <div class="preview-title">📍 선택 서점 정보 & 지도 좌표 미리보기</div>
+        <div id="coordsPreview">주소를 입력하거나 서점을 선택하면 카카오 지도 좌표가 표시됩니다.</div>
+    </div>
 </div>
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-  import { getDatabase, ref, set } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+  import { getDatabase, ref, set, remove, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyCMQPApA3XeE08uEMKnb-qJnDeWfP9OpM",
@@ -82,9 +107,55 @@
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
 
-  // 지오코더 (주소 -> 좌표 변환기)
-  const geocoder = new kakao.maps.services.Geocoder();
+  let allStores = {};
+  let geocoder = null;
 
+  // 카카오 지오코더 준비
+  if (window.kakao && window.kakao.maps && window.kakao.maps.services) {
+      geocoder = new kakao.maps.services.Geocoder();
+  }
+
+  // DB 실시간 동기화 및 드롭다운 목록 생성
+  const storesRef = ref(db, 'stores');
+  onValue(storesRef, (snapshot) => {
+      allStores = snapshot.val() || {};
+      const selectStore = document.getElementById('selectStore');
+      selectStore.innerHTML = '<option value="">-- 직접 입력 또는 선택 --</option>';
+
+      for (let name in allStores) {
+          const item = allStores[name];
+          const option = document.createElement('option');
+          option.value = name;
+          option.textContent = `[${item.city || '경기'}] ${name}`;
+          selectStore.appendChild(option);
+      }
+  });
+
+  // 서점 선택 시 폼에 데이터 자동 입력
+  document.getElementById('selectStore').addEventListener('change', (e) => {
+      const selectedName = e.target.value;
+      if (selectedName && allStores[selectedName]) {
+          const item = allStores[selectedName];
+          document.getElementById('citySelect').value = item.city || '광주시';
+          document.getElementById('storeName').value = selectedName;
+          document.getElementById('storeAddress').value = item.address || '';
+          document.getElementById('storeBalance').value = item.balance || 0;
+          document.getElementById('storePolicy').value = item.policy || '';
+
+          // 저장된 좌표 표시
+          if (item.lat && item.lng) {
+              document.getElementById('coordsPreview').innerHTML = `
+                  <strong>${selectedName}</strong><br>
+                  <span class="coords-badge">위도(lat): ${item.lat}</span> 
+                  <span class="coords-badge">경도(lng): ${item.lng}</span>
+              `;
+          } else {
+              document.getElementById('coordsPreview').innerHTML = `⚠️ 저장된 좌표가 없습니다. [정보 저장 / 수정]을 눌러 좌표를 추출해 주세요.`;
+          }
+      }
+  });
+
+  // 저장 버튼 클릭 이벤트
   document.getElementById('saveBtn').addEventListener('click', () => {
       const city = document.getElementById('citySelect').value;
       const name = document.getElementById('storeName').value.trim();
@@ -99,34 +170,59 @@
       }
 
       statusMsg.style.color = "blue";
-      statusMsg.innerText = "카카오 지도에서 주소 좌표 변환 중...";
+      statusMsg.innerText = "카카오 지도로 주소 좌표 변환 중...";
 
-      // 주소를 좌표로 변환 후 저장
-      geocoder.addressSearch(address, function(result, status) {
-          let lat = 37.2635727; // 기본값
-          let lng = 127.0286009;
+      // 카카오 지도로 주소 -> 좌표 변환 수행
+      if (geocoder) {
+          geocoder.addressSearch(address, function(result, status) {
+              let lat = 37.2635727; // 변환 실패시 기본값
+              let lng = 127.0286009;
 
-          if (status === kakao.maps.services.Status.OK) {
-              lat = parseFloat(result[0].y);
-              lng = parseFloat(result[0].x);
-          }
+              if (status === kakao.maps.services.Status.OK) {
+                  lat = parseFloat(result[0].y);
+                  lng = parseFloat(result[0].x);
+              }
 
-          // 파이어베이스 DB에 좌표(lat, lng)까지 한꺼번에 저장
-          set(ref(db, 'stores/' + name), {
-              city: city,
-              address: address,
-              balance: Number(balance),
-              policy: policy,
-              lat: lat,
-              lng: lng
-          }).then(() => {
-              statusMsg.style.color = "green";
-              statusMsg.innerText = "✅ 성공적으로 저장되었습니다! (좌표 포함)";
-          }).catch((error) => {
-              statusMsg.style.color = "red";
-              statusMsg.innerText = "❌ 저장 실패: " + error.message;
+              // DB에 좌표(lat, lng) 포함하여 저장
+              set(ref(db, 'stores/' + name), {
+                  city: city,
+                  address: address,
+                  balance: Number(balance),
+                  policy: policy,
+                  lat: lat,
+                  lng: lng
+              }).then(() => {
+                  statusMsg.style.color = "green";
+                  statusMsg.innerText = `✅ "${name}" 저장 완료!`;
+                  document.getElementById('coordsPreview').innerHTML = `
+                      <strong>${name} 좌표 추출 성공!</strong><br>
+                      <span class="coords-badge">위도(lat): ${lat}</span> 
+                      <span class="coords-badge">경도(lng): ${lng}</span>
+                  `;
+              }).catch((error) => {
+                  statusMsg.style.color = "red";
+                  statusMsg.innerText = "❌ 저장 실패: " + error.message;
+              });
           });
-      });
+      } else {
+          alert('카카오 지도 API를 로드하지 못했습니다. 플랫폼 도메인을 확인해 주세요.');
+      }
+  });
+
+  // 삭제 버튼 클릭 이벤트
+  document.getElementById('deleteBtn').addEventListener('click', () => {
+      const name = document.getElementById('storeName').value.trim();
+      if (!name) {
+          alert('삭제할 서점을 선택하거나 이름을 입력해 주세요.');
+          return;
+      }
+
+      if (confirm(`정말로 "${name}" 서점을 삭제하시겠습니까?`)) {
+          remove(ref(db, 'stores/' + name)).then(() => {
+              alert(`"${name}" 서점이 삭제되었습니다.`);
+              location.reload();
+          });
+      }
   });
 </script>
 
