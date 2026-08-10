@@ -103,41 +103,46 @@
   let markers = [];
   let allStores = {};
 
-  // 지도 초기화 함수
+  // 1. 지도 초기화 (페이지 시작 시 바로 지도를 그려둠)
   function initMap() {
       const container = document.getElementById('map');
       const options = {
-          center: new kakao.maps.LatLng(37.4082, 127.2582), // 경기 광주시 기본 좌표
+          center: new kakao.maps.LatLng(37.4082, 127.2582), // 기본 경기 광주시
           level: 7
       };
       map = new kakao.maps.Map(container, options);
+
+      // 지도 준비 완료 후 DB 구독 시작
+      const storesRef = ref(db, 'stores');
+      onValue(storesRef, (snapshot) => {
+          allStores = snapshot.val() || {};
+          renderStores();
+      });
   }
 
-  // 페이지 로드 시 즉시 지도 로드 시도
+  // 카카오 지도가 불러와지면 initMap 실행
   if (window.kakao && window.kakao.maps) {
       kakao.maps.load(initMap);
   }
 
-  // DB 데이터 구독
-  const storesRef = ref(db, 'stores');
-  onValue(storesRef, (snapshot) => {
-      allStores = snapshot.val() || {};
-      renderStores();
-  });
-
   document.getElementById('cityFilter').addEventListener('change', renderStores);
 
   function renderStores() {
+      if (!map) return; // 지도가 아직 생성 안 됐으면 대기
+
+      // 지도 레이아웃 강제 갱신 (회색 화면 방지 핵심 코드!)
+      map.relayout();
+
       const selectedCity = document.getElementById('cityFilter').value;
       const listContainer = document.getElementById('storeList');
       listContainer.innerHTML = '';
 
-      // 기존 마커 정리
+      // 기존 마커 지우기
       markers.forEach(m => m.setMap(null));
       markers = [];
 
       let count = 0;
-      let bounds = (window.kakao && window.kakao.maps) ? new kakao.maps.LatLngBounds() : null;
+      let bounds = new kakao.maps.LatLngBounds();
 
       for (let name in allStores) {
           const item = allStores[name];
@@ -149,7 +154,7 @@
 
           count++;
 
-          // 가로 확장형 카드 HTML
+          // 카드 추가
           const card = document.createElement('div');
           card.className = 'store-card';
           card.innerHTML = `
@@ -167,9 +172,9 @@
               <div class="store-policy">${item.policy || '운영 정책 정보가 없습니다.'}</div>
           `;
 
-          // 카드 클릭 시 해당 위치로 지도 이동
+          // 카드 클릭 시 이동
           card.addEventListener('click', () => {
-              if (item.lat && item.lng && map) {
+              if (item.lat && item.lng) {
                   const moveLatLon = new kakao.maps.LatLng(item.lat, item.lng);
                   map.panTo(moveLatLon);
                   map.setLevel(4);
@@ -178,8 +183,8 @@
 
           listContainer.appendChild(card);
 
-          // 지도 마커 생성
-          if (item.lat && item.lng && map) {
+          // 지도에 마커 추가
+          if (item.lat && item.lng) {
               const markerPosition = new kakao.maps.LatLng(item.lat, item.lng);
               const marker = new kakao.maps.Marker({
                   position: markerPosition,
@@ -188,9 +193,7 @@
               marker.setMap(map);
               markers.push(marker);
 
-              if (bounds) {
-                  bounds.extend(markerPosition);
-              }
+              bounds.extend(markerPosition);
 
               const iwContent = `
                   <div style="padding:10px;font-size:12px;width:180px;text-align:center;">
@@ -208,9 +211,12 @@
 
       if (count === 0) {
           listContainer.innerHTML = `<div class="no-data">선택하신 지역(${selectedCity})에 등록된 서점이 없습니다.</div>`;
-      } else if (markers.length > 0 && map && bounds) {
+          // 기본 좌표로 중앙 이동
+          map.setCenter(new kakao.maps.LatLng(37.4082, 127.2582));
+          map.setLevel(7);
+      } else if (markers.length > 0) {
+          // 마커 위치에 맞춰 지도 중심 및 영역 자동 맞춤
           map.setBounds(bounds);
-          map.relayout(); // 지도 크기 다시 계산 (회색 화면 방지)
       }
   }
 </script>
