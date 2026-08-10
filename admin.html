@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>청소년 책사줄게 - 서점 관리자 시스템</title>
-    <!-- 카카오 지도 API (주소 -> 좌표 변환용) -->
-    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=1c9c405c6220a2a05886c680d8690e6a&libraries=services"></script>
+    <!-- 카카오 지도 API (autoload=false 옵션 추가) -->
+    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=1c9c405c6220a2a05886c680d8690e6a&libraries=services&autoload=false"></script>
     <style>
         * { box-sizing: border-box; }
         body { font-family: 'Noto Sans KR', sans-serif; background-color: #f8f9fa; margin: 0; padding: 20px; }
@@ -83,7 +83,6 @@
 
     <div id="statusMsg" class="status-msg"></div>
 
-    <!-- 좌표 확인용 미리보기 박스 -->
     <div class="preview-box">
         <div class="preview-title">📍 선택 서점 정보 & 지도 좌표 미리보기</div>
         <div id="coordsPreview">주소를 입력하거나 서점을 선택하면 카카오 지도 좌표가 표시됩니다.</div>
@@ -108,14 +107,8 @@
   const db = getDatabase(app);
 
   let allStores = {};
-  let geocoder = null;
 
-  // 카카오 지오코더 준비
-  if (window.kakao && window.kakao.maps && window.kakao.maps.services) {
-      geocoder = new kakao.maps.services.Geocoder();
-  }
-
-  // DB 실시간 동기화 및 드롭다운 목록 생성
+  // DB 실시간 동기화
   const storesRef = ref(db, 'stores');
   onValue(storesRef, (snapshot) => {
       allStores = snapshot.val() || {};
@@ -131,7 +124,7 @@
       }
   });
 
-  // 서점 선택 시 폼에 데이터 자동 입력
+  // 서점 선택 시 데이터 자동채우기
   document.getElementById('selectStore').addEventListener('change', (e) => {
       const selectedName = e.target.value;
       if (selectedName && allStores[selectedName]) {
@@ -142,7 +135,6 @@
           document.getElementById('storeBalance').value = item.balance || 0;
           document.getElementById('storePolicy').value = item.policy || '';
 
-          // 저장된 좌표 표시
           if (item.lat && item.lng) {
               document.getElementById('coordsPreview').innerHTML = `
                   <strong>${selectedName}</strong><br>
@@ -155,35 +147,22 @@
       }
   });
 
-  // 저장 버튼 클릭 이벤트
-  document.getElementById('saveBtn').addEventListener('click', () => {
-      const city = document.getElementById('citySelect').value;
-      const name = document.getElementById('storeName').value.trim();
-      const address = document.getElementById('storeAddress').value.trim();
-      const balance = document.getElementById('storeBalance').value;
-      const policy = document.getElementById('storePolicy').value;
+  // 저장 처리 함수 (좌표 변환 포함)
+  function saveStoreWithCoords(city, name, address, balance, policy) {
       const statusMsg = document.getElementById('statusMsg');
 
-      if (!name || !address || !balance) {
-          alert('서점 이름, 주소, 잔액은 필수 입력사항입니다.');
-          return;
-      }
+      kakao.maps.load(() => {
+          const geocoder = new kakao.maps.services.Geocoder();
 
-      statusMsg.style.color = "blue";
-      statusMsg.innerText = "카카오 지도로 주소 좌표 변환 중...";
-
-      // 카카오 지도로 주소 -> 좌표 변환 수행
-      if (geocoder) {
           geocoder.addressSearch(address, function(result, status) {
-              let lat = 37.2635727; // 변환 실패시 기본값
-              let lng = 127.0286009;
+              let lat = 37.4082; // 기본 좌표 (경기 광주시청 부근)
+              let lng = 127.2582;
 
               if (status === kakao.maps.services.Status.OK) {
                   lat = parseFloat(result[0].y);
                   lng = parseFloat(result[0].x);
               }
 
-              // DB에 좌표(lat, lng) 포함하여 저장
               set(ref(db, 'stores/' + name), {
                   city: city,
                   address: address,
@@ -204,8 +183,30 @@
                   statusMsg.innerText = "❌ 저장 실패: " + error.message;
               });
           });
+      });
+  }
+
+  // 저장 버튼 클릭 이벤트
+  document.getElementById('saveBtn').addEventListener('click', () => {
+      const city = document.getElementById('citySelect').value;
+      const name = document.getElementById('storeName').value.trim();
+      const address = document.getElementById('storeAddress').value.trim();
+      const balance = document.getElementById('storeBalance').value;
+      const policy = document.getElementById('storePolicy').value;
+      const statusMsg = document.getElementById('statusMsg');
+
+      if (!name || !address || !balance) {
+          alert('서점 이름, 주소, 잔액은 필수 입력사항입니다.');
+          return;
+      }
+
+      statusMsg.style.color = "blue";
+      statusMsg.innerText = "카카오 지도로 주소 좌표 변환 중...";
+
+      if (window.kakao && window.kakao.maps) {
+          saveStoreWithCoords(city, name, address, balance, policy);
       } else {
-          alert('카카오 지도 API를 로드하지 못했습니다. 플랫폼 도메인을 확인해 주세요.');
+          alert('카카오 지도 API 로드 실패: 앱 키 및 카카오 개발자 센터의 [플랫폼 키] > [JavaScript SDK 도메인] 설정을 확인해주세요.');
       }
   });
 
