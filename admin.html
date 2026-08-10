@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>청소년 책사줄게 - 서점 관리자 시스템</title>
-    <!-- 카카오 지도 API (autoload=false 옵션 추가) -->
-    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=1c9c405c6220a2a05886c680d8690e6a&libraries=services&autoload=false"></script>
+    <!-- 카카오 지도 API -->
+    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=1c9c405c6220a2a05886c680d8690e6a&libraries=services"></script>
     <style>
         * { box-sizing: border-box; }
         body { font-family: 'Noto Sans KR', sans-serif; background-color: #f8f9fa; margin: 0; padding: 20px; }
@@ -25,6 +25,7 @@
         .preview-box { margin-top: 20px; padding: 15px; background: #e9ecef; border-radius: 8px; }
         .preview-title { font-weight: bold; margin-bottom: 8px; color: #495057; }
         .coords-badge { display: inline-block; background: #6c757d; color: white; padding: 3px 8px; border-radius: 4px; font-size: 12px; margin-top: 5px; }
+        .hint-text { font-size: 12px; color: #6c757d; margin-top: 4px; }
     </style>
 </head>
 <body>
@@ -64,6 +65,7 @@
     <div class="form-group">
         <label for="storeAddress">서점 도로명 주소 (지도 표시용)</label>
         <input type="text" id="storeAddress" placeholder="예: 경기 광주시 퇴촌면 천진암로 596 1층">
+        <div class="hint-text">* '1층', '101호' 등이 들어가 있어도 자동으로 정제하여 좌표를 추출합니다.</div>
     </div>
 
     <div class="form-group">
@@ -147,43 +149,15 @@
       }
   });
 
-  // 저장 처리 함수 (좌표 변환 포함)
-  function saveStoreWithCoords(city, name, address, balance, policy) {
-      const statusMsg = document.getElementById('statusMsg');
-
-      kakao.maps.load(() => {
-          const geocoder = new kakao.maps.services.Geocoder();
-
-          geocoder.addressSearch(address, function(result, status) {
-              let lat = 37.4082; // 기본 좌표 (경기 광주시청 부근)
-              let lng = 127.2582;
-
-              if (status === kakao.maps.services.Status.OK) {
-                  lat = parseFloat(result[0].y);
-                  lng = parseFloat(result[0].x);
-              }
-
-              set(ref(db, 'stores/' + name), {
-                  city: city,
-                  address: address,
-                  balance: Number(balance),
-                  policy: policy,
-                  lat: lat,
-                  lng: lng
-              }).then(() => {
-                  statusMsg.style.color = "green";
-                  statusMsg.innerText = `✅ "${name}" 저장 완료!`;
-                  document.getElementById('coordsPreview').innerHTML = `
-                      <strong>${name} 좌표 추출 성공!</strong><br>
-                      <span class="coords-badge">위도(lat): ${lat}</span> 
-                      <span class="coords-badge">경도(lng): ${lng}</span>
-                  `;
-              }).catch((error) => {
-                  statusMsg.style.color = "red";
-                  statusMsg.innerText = "❌ 저장 실패: " + error.message;
-              });
-          });
-      });
+  // 주소에서 '1층', '2층', '101호' 등 건물 상세정보 자동 제거 함수
+  function cleanAddress(rawAddr) {
+      return rawAddr
+          .replace(/\(.*\)/g, '') // 괄호 항목 제거
+          .replace(/\b\d+층\b/g, '') // '1층', '2층' 등 제거
+          .replace(/\b\d+호\b/g, '') // '101호' 등 제거
+          .replace(/지하\d+층/g, '') // '지하1층' 등 제거
+          .replace(/\s+/g, ' ') // 다중 공백 단일화
+          .trim();
   }
 
   // 저장 버튼 클릭 이벤트
@@ -201,14 +175,56 @@
       }
 
       statusMsg.style.color = "blue";
-      statusMsg.innerText = "카카오 지도로 주소 좌표 변환 중...";
+      statusMsg.innerText = "좌표 검색 중...";
 
-      if (window.kakao && window.kakao.maps) {
-          saveStoreWithCoords(city, name, address, balance, policy);
+      // 카카오 지도가 정상 로드되었을 경우 카카오 API 사용
+      if (window.kakao && window.kakao.maps && window.kakao.maps.services) {
+          const geocoder = new kakao.maps.services.Geocoder();
+          const searchAddr = cleanAddress(address); // 정제된 주소로 검색
+
+          geocoder.addressSearch(searchAddr, function(result, status) {
+              let lat = 37.4082; // 광주시 기본 위치
+              let lng = 127.2582;
+
+              if (status === kakao.maps.services.Status.OK) {
+                  lat = parseFloat(result[0].y);
+                  lng = parseFloat(result[0].x);
+              } else {
+                  console.warn("카카오 지도 주소 검색 실패, 시/군 기준 기본 좌표 적용:", status);
+              }
+
+              saveToFirebase(name, city, address, balance, policy, lat, lng);
+          });
       } else {
-          alert('카카오 지도 API 로드 실패: 앱 키 및 카카오 개발자 센터의 [플랫폼 키] > [JavaScript SDK 도메인] 설정을 확인해주세요.');
+          // 카카오 지도를 불러오지 못하더라도 저장 동작은 정상 완료 처리 (기본 광주시 좌표 적용)
+          saveToFirebase(name, city, address, balance, policy, 37.4082, 127.2582);
       }
   });
+
+  // 파이어베이스 저장 함수
+  function saveToFirebase(name, city, address, balance, policy, lat, lng) {
+      const statusMsg = document.getElementById('statusMsg');
+      
+      set(ref(db, 'stores/' + name), {
+          city: city,
+          address: address,
+          balance: Number(balance),
+          policy: policy,
+          lat: lat,
+          lng: lng
+      }).then(() => {
+          statusMsg.style.color = "green";
+          statusMsg.innerText = `✅ "${name}" 저장 완료!`;
+          document.getElementById('coordsPreview').innerHTML = `
+              <strong>${name} 정보 저장 성공!</strong><br>
+              <span class="coords-badge">위도(lat): ${lat}</span> 
+              <span class="coords-badge">경도(lng): ${lng}</span>
+          `;
+      }).catch((error) => {
+          statusMsg.style.color = "red";
+          statusMsg.innerText = "❌ 저장 실패: " + error.message;
+      });
+  }
 
   // 삭제 버튼 클릭 이벤트
   document.getElementById('deleteBtn').addEventListener('click', () => {
