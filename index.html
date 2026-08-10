@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>청소년 책사줄게 - 지역 서점 지원 플랫폼</title>
-    <!-- 카카오 지도 API -->
+    <!-- 카카오 지도 API (admin.html과 동일한 스크립트 로드 방식) -->
     <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=1c9c405c6220a2a05886c680d8690e6a&libraries=services"></script>
     <style>
         * { box-sizing: border-box; }
@@ -103,36 +103,26 @@
   let markers = [];
   let allStores = {};
 
-  // 1. 지도 초기화 (페이지 시작 시 바로 지도를 그려둠)
-  function initMap() {
-      const container = document.getElementById('map');
-      const options = {
-          center: new kakao.maps.LatLng(37.4082, 127.2582), // 기본 경기 광주시
-          level: 7
-      };
-      map = new kakao.maps.Map(container, options);
+  // 1. 카카오 지도 생성 (admin.html 구조 동일 적용)
+  const container = document.getElementById('map');
+  const options = {
+      center: new kakao.maps.LatLng(37.4082, 127.2582), // 기본 광주시 중심 위치
+      level: 7
+  };
+  map = new kakao.maps.Map(container, options);
 
-      // 지도 준비 완료 후 DB 구독 시작
-      const storesRef = ref(db, 'stores');
-      onValue(storesRef, (snapshot) => {
-          allStores = snapshot.val() || {};
-          renderStores();
-      });
-  }
+  // 2. 파이어베이스 실시간 데이터 동기화
+  const storesRef = ref(db, 'stores');
+  onValue(storesRef, (snapshot) => {
+      allStores = snapshot.val() || {};
+      renderStores();
+  });
 
-  // 카카오 지도가 불러와지면 initMap 실행
-  if (window.kakao && window.kakao.maps) {
-      kakao.maps.load(initMap);
-  }
-
+  // 필터 변경 이벤트
   document.getElementById('cityFilter').addEventListener('change', renderStores);
 
+  // 3. 서점 카드 및 마커 표출
   function renderStores() {
-      if (!map) return; // 지도가 아직 생성 안 됐으면 대기
-
-      // 지도 레이아웃 강제 갱신 (회색 화면 방지 핵심 코드!)
-      map.relayout();
-
       const selectedCity = document.getElementById('cityFilter').value;
       const listContainer = document.getElementById('storeList');
       listContainer.innerHTML = '';
@@ -154,7 +144,7 @@
 
           count++;
 
-          // 카드 추가
+          // 가로 와이드형 서점 카드 생성
           const card = document.createElement('div');
           card.className = 'store-card';
           card.innerHTML = `
@@ -174,7 +164,7 @@
 
           // 카드 클릭 시 이동
           card.addEventListener('click', () => {
-              if (item.lat && item.lng) {
+              if (item.lat && item.lng && map) {
                   const moveLatLon = new kakao.maps.LatLng(item.lat, item.lng);
                   map.panTo(moveLatLon);
                   map.setLevel(4);
@@ -183,8 +173,8 @@
 
           listContainer.appendChild(card);
 
-          // 지도에 마커 추가
-          if (item.lat && item.lng) {
+          // 카카오 마커 찍기
+          if (item.lat && item.lng && map) {
               const markerPosition = new kakao.maps.LatLng(item.lat, item.lng);
               const marker = new kakao.maps.Marker({
                   position: markerPosition,
@@ -209,13 +199,18 @@
           }
       }
 
+      // 지도 레이아웃 재계산 및 센터 조정
+      if (map) {
+          map.relayout();
+      }
+
       if (count === 0) {
           listContainer.innerHTML = `<div class="no-data">선택하신 지역(${selectedCity})에 등록된 서점이 없습니다.</div>`;
-          // 기본 좌표로 중앙 이동
-          map.setCenter(new kakao.maps.LatLng(37.4082, 127.2582));
-          map.setLevel(7);
-      } else if (markers.length > 0) {
-          // 마커 위치에 맞춰 지도 중심 및 영역 자동 맞춤
+          if (map) {
+              map.setCenter(new kakao.maps.LatLng(37.4082, 127.2582));
+              map.setLevel(7);
+          }
+      } else if (markers.length > 0 && map) {
           map.setBounds(bounds);
       }
   }
