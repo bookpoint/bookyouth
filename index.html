@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>청소년 책사줄게 - 지역 서점 지원 플랫폼</title>
-    <!-- 카카오 지도 API -->
-    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=1c9c405c6220a2a05886c680d8690e6a&libraries=services"></script>
+    <!-- 카카오 지도 API (autoload=false 설정으로 비동기 안전 로드) -->
+    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=1c9c405c6220a2a05886c680d8690e6a&libraries=services&autoload=false"></script>
     <style>
         * { box-sizing: border-box; }
         body { font-family: 'Noto Sans KR', sans-serif; margin: 0; padding: 0; background-color: #f8f9fa; color: #333; }
@@ -22,7 +22,7 @@
         .filter-section select { padding: 8px 12px; border-radius: 6px; border: 1px solid #ccc; font-size: 15px; }
 
         /* 지도 영역 */
-        #map { width: 100%; height: 400px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-bottom: 25px; }
+        #map { width: 100%; height: 400px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-bottom: 25px; background: #e9ecef; }
 
         /* 서점 카드 리스트 */
         .store-list-title { font-size: 20px; font-weight: bold; margin-bottom: 15px; border-left: 4px solid #007bff; padding-left: 10px; }
@@ -54,15 +54,16 @@
         <select id="cityFilter">
             <option value="전체">경기도 전체</option>
             <option value="가평군">가평군</option><option value="고양시">고양시</option><option value="과천시">과천시</option>
-            <option value="광명시" selected>광주시</option><option value="구리시">구리시</option><option value="군포시">군포시</option>
-            <option value="김포시">김포시</option><option value="남양주시">남양주시</option><option value="동두천시">동두천시</option>
-            <option value="부천시">부천시</option><option value="성남시">성남시</option><option value="수원시">수원시</option>
-            <option value="시흥시">시흥시</option><option value="안산시">안산시</option><option value="안성시">안성시</option>
-            <option value="안양시">안양시</option><option value="양주시">양주시</option><option value="양평군">양평군</option>
-            <option value="여주시">여주시</option><option value="연천군">연천군</option><option value="오산시">오산시</option>
-            <option value="용인시">용인시</option><option value="의왕시">의왕시</option><option value="의정부시">의정부시</option>
-            <option value="이천시">이천시</option><option value="파주시">파주시</option><option value="평택시">평택시</option>
-            <option value="포천시">포천시</option><option value="하남시">하남시</option><option value="화성시">화성시</option>
+            <option value="광명시">광명시</option><option value="광주시" selected>광주시</option><option value="구리시">구리시</option>
+            <option value="군포시">군포시</option><option value="김포시">김포시</option><option value="남양주시">남양주시</option>
+            <option value="동두천시">동두천시</option><option value="부천시">부천시</option><option value="성남시">성남시</option>
+            <option value="수원시">수원시</option><option value="시흥시">시흥시</option><option value="안산시">안산시</option>
+            <option value="안성시">안성시</option><option value="안양시">안양시</option><option value="양주시">양주시</option>
+            <option value="양평군">양평군</option><option value="여주시">여주시</option><option value="연천군">연천군</option>
+            <option value="오산시">오산시</option><option value="용인시">용인시</option><option value="의왕시">의왕시</option>
+            <option value="의정부시">의정부시</option><option value="이천시">이천시</option><option value="파주시">파주시</option>
+            <option value="평택시">평택시</option><option value="포천시">포천시</option><option value="하남시">하남시</option>
+            <option value="화성시">화성시</option>
         </select>
     </div>
 
@@ -93,27 +94,31 @@
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
 
-  let map;
+  let map = null;
   let markers = [];
-  let infoWindows = [];
   let allStores = {};
 
-  // 지도 초기화
-  function initMap() {
-      const container = document.getElementById('map');
-      const options = {
-          center: new kakao.maps.LatLng(37.4082, 127.2582), // 기본 경기도 광주시 위치
-          level: 7
-      };
-      map = new kakao.maps.Map(container, options);
+  // 1. 카카오 지도 초기화
+  function initKakaoMap() {
+      if (window.kakao && window.kakao.maps) {
+          kakao.maps.load(() => {
+              const container = document.getElementById('map');
+              const options = {
+                  center: new kakao.maps.LatLng(37.4082, 127.2582), // 기본 경기도 광주시 위치
+                  level: 7
+              };
+              map = new kakao.maps.Map(container, options);
+              
+              // 지도가 생성된 후 DB 데이터를 그려줌
+              renderStores();
+          });
+      }
   }
 
-  // 카카오 지도가 로드되었는지 확인 후 지도 생성
-  if (window.kakao && window.kakao.maps) {
-      kakao.maps.load(initMap);
-  }
+  // 페이지 로드 시 지도 초기화 실행
+  initKakaoMap();
 
-  // DB에서 데이터 불러오기
+  // 2. DB 실시간 동기화
   const storesRef = ref(db, 'stores');
   onValue(storesRef, (snapshot) => {
       allStores = snapshot.val() || {};
@@ -123,19 +128,22 @@
   // 지역 필터 변경 시 처리
   document.getElementById('cityFilter').addEventListener('change', renderStores);
 
-  // 화면 표출 함수 (지도 핀 + 카드 리스트)
+  // 3. 화면 표출 함수 (지도 핀 + 카드 리스트)
   function renderStores() {
       const selectedCity = document.getElementById('cityFilter').value;
       const grid = document.getElementById('storeGrid');
       grid.innerHTML = '';
 
-      // 기존 지도 마커 삭제
+      // 기존 지도 마커 제거
       markers.forEach(m => m.setMap(null));
       markers = [];
-      infoWindows = [];
 
       let count = 0;
-      let bounds = new kakao.maps.LatLngBounds();
+      let bounds = null;
+
+      if (window.kakao && window.kakao.maps && map) {
+          bounds = new kakao.maps.LatLngBounds();
+      }
 
       for (let name in allStores) {
           const item = allStores[name];
@@ -148,7 +156,7 @@
 
           count++;
 
-          // 1. 서점 카드 생성
+          // [카드리스트 생성]
           const card = document.createElement('div');
           card.className = 'store-card';
           card.innerHTML = `
@@ -173,7 +181,7 @@
 
           grid.appendChild(card);
 
-          // 2. 지도 마커 생성 (좌표가 있는 경우만)
+          // [지도 마커 생성]
           if (item.lat && item.lng && map) {
               const markerPosition = new kakao.maps.LatLng(item.lat, item.lng);
               const marker = new kakao.maps.Marker({
@@ -183,10 +191,11 @@
               marker.setMap(map);
               markers.push(marker);
 
-              // 영역 확장을 위해 좌표 추가
-              bounds.extend(markerPosition);
+              if (bounds) {
+                  bounds.extend(markerPosition);
+              }
 
-              // 인포윈도우(풍선 도움말) 생성
+              // 마커 클릭 시 풍선도움말(인포윈도우)
               const iwContent = `
                   <div style="padding:10px;font-size:12px;width:180px;text-align:center;">
                       <strong>${name}</strong><br>
@@ -203,11 +212,10 @@
           }
       }
 
-      // 등록된 서점이 없을 때
+      // 결과 처리
       if (count === 0) {
           grid.innerHTML = `<div class="no-data">선택하신 지역(${selectedCity})에 등록된 서점이 없습니다.</div>`;
-      } else if (markers.length > 0 && map) {
-          // 마커들이 모두 보이도록 지도 영역 자동 조절
+      } else if (markers.length > 0 && map && bounds) {
           map.setBounds(bounds);
       }
   }
