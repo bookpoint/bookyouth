@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>청소년 책사줄게 - 서점 관리자 페이지 (지역선택 추가)</title>
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+      import { getDatabase, ref, set, onValue, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+      const firebaseConfig = {
+        apiKey: "AIzaSyCMQPApA3XeE08uEMKnb-qJnDeWfP9OpM",
+        authDomain: "bookyouth.firebaseapp.com",
+        databaseURL: "https://bookyouth-default-rtdb.firebaseio.com",
+        projectId: "bookyouth",
+        storageBucket: "bookyouth.firebasestorage.app",
+        messagingSenderId: "1089377339474",
+        appId: "1:1089377339474:web:1a300744b0f0b210aab78b"
+      };
+
+      const app = initializeApp(firebaseConfig);
+      const db = getDatabase(app);
+
+      let storesData = {};
+      let currentSelectedKey = "";
+
+      const storesRef = ref(db, 'stores');
+      onValue(storesRef, (snapshot) => {
+        const data = snapshot.val();
+        storesData = data || {};
+        updateSelectOptions();
+        
+        if (currentSelectedKey && storesData[currentSelectedKey]) {
+          onSelectStore();
+        } else {
+          const firstKey = Object.keys(storesData)[0];
+          if (firstKey) {
+            document.getElementById('storeSelect').value = firstKey;
+            onSelectStore();
+          } else {
+            document.getElementById('storeSelect').value = "new";
+            onSelectStore();
+          }
+        }
+      });
+
+      window.updateSelectOptions = function() {
+        const select = document.getElementById('storeSelect');
+        const currentVal = select.value;
+        select.innerHTML = '<option value="new">+ 새 서점 직접 등록하기</option>';
+        
+        for (let name in storesData) {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.innerText = `[${storesData[name].city || '지역미정'}] ${name}`;
+            select.appendChild(opt);
+        }
+        if(currentVal) select.value = currentVal;
+      }
+
+      window.onSelectStore = function() {
+        const selected = document.getElementById('storeSelect').value;
+        currentSelectedKey = selected;
+
+        if (selected === "new") {
+            document.getElementById('storeName').value = "";
+            document.getElementById('citySelect').value = "수원시";
+            document.getElementById('address').value = "";
+            document.getElementById('balance').value = "";
+            document.getElementById('policy').value = "";
+            clearPreview("새 서점 등록 중입니다.");
+            document.getElementById('storeName').focus();
+        } else if (selected && storesData[selected]) {
+            const item = storesData[selected];
+            document.getElementById('storeName').value = selected;
+            document.getElementById('citySelect').value = item.city || "수원시";
+            document.getElementById('address').value = item.address || "";
+            document.getElementById('balance').value = item.balance;
+            document.getElementById('policy').value = item.policy;
+
+            updatePreview(selected, item.city, item.address, item.balance, item.policy);
+        }
+      }
+
+      window.saveStoreData = function() {
+        const newName = document.getElementById('storeName').value.trim();
+        const city = document.getElementById('citySelect').value;
+        const address = document.getElementById('address').value.trim();
+        const balance = document.getElementById('balance').value;
+        const policy = document.getElementById('policy').value;
+
+        if (!newName || balance === "") {
+            alert('서점 이름과 기부금 잔액을 입력해주세요.');
+            return;
+        }
+
+        if (currentSelectedKey && currentSelectedKey !== "new" && currentSelectedKey !== newName) {
+            remove(ref(db, 'stores/' + currentSelectedKey));
+        }
+
+        set(ref(db, 'stores/' + newName), {
+            city: city,
+            address: address,
+            balance: Number(balance),
+            policy: policy,
+            updatedAt: new Date().toISOString()
+        }).then(() => {
+            alert(`[${newName}] 정보가 성공적으로 저장되었습니다!`);
+            currentSelectedKey = newName;
+        }).catch((error) => {
+            alert('저장 실패: ' + error.message);
+        });
+      }
+
+      window.deleteStoreData = function() {
+        const selected = document.getElementById('storeSelect').value;
+
+        if (selected === "new" || !selected) {
+            alert('삭제할 서점을 선택해주세요.');
+            return;
+        }
+
+        if (confirm(`정말로 [${selected}] 서점을 삭제하시겠습니까?`)) {
+            remove(ref(db, 'stores/' + selected)).then(() => {
+                alert(`[${selected}] 서점이 삭제되었습니다.`);
+            });
+        }
+      }
+
+      function updatePreview(name, city, address, balance, policy) {
+        document.getElementById('previewName').innerText = name;
+        document.getElementById('previewCity').innerText = city || "-";
+        document.getElementById('previewAddress').innerText = address || "(주소 미입력)";
+        document.getElementById('previewBalance').innerText = Number(balance).toLocaleString();
+        document.getElementById('previewPolicy').innerText = policy || "(등록된 운영 정책이 없습니다)";
+      }
+
+      function clearPreview(msg) {
+        document.getElementById('previewName').innerText = msg;
+        document.getElementById('previewCity').innerText = "-";
+        document.getElementById('previewAddress').innerText = "-";
+        document.getElementById('previewBalance').innerText = "-";
+        document.getElementById('previewPolicy').innerText = "-";
+      }
+    </script>
+    <style>
+        body { font-family: 'Noto Sans KR', sans-serif; margin: 20px; background-color: #f8f9fa; }
+        .container { max-width: 650px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h2 { color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
+        .form-group { margin-bottom: 18px; }
+        label { display: block; font-weight: bold; margin-bottom: 6px; color: #555; }
+        input, select, textarea { width: 100%; padding: 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
+        textarea { height: 120px; resize: vertical; line-height: 1.5; }
+        .btn-group { display: flex; gap: 10px; margin-top: 20px; }
+        button { flex: 2; padding: 12px; background-color: #007bff; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; }
+        button.delete-btn { flex: 1; background-color: #dc3545; }
+        button:hover { opacity: 0.9; }
+        .status-box { margin-top: 25px; padding: 18px; background: #e9ecef; border-radius: 8px; border-left: 5px solid #007bff; }
+        .status-box p { margin: 8px 0; line-height: 1.6; }
+        .policy-preview { white-space: pre-wrap; background: #fff; padding: 10px; border-radius: 6px; border: 1px solid #ddd; margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>📚 서점 정보 & 기부금 관리</h2>
+    
+    <div class="form-group">
+        <label for="storeSelect">관리할 서점 선택</label>
+        <select id="storeSelect" onchange="onSelectStore()">
+            <option value="new">+ 새 서점 직접 등록하기</option>
+        </select>
+    </div>
+
+    <!-- 가나다 순 경기도 31개 시/군 목록 -->
+    <div class="form-group">
+        <label for="citySelect">지역 (경기도 시/군)</label>
+        <select id="citySelect">
+            <option value="가평군">가평군</option>
+            <option value="고양시">고양시</option>
+            <option value="과천시">과천시</option>
+            <option value="광명시">광명시</option>
+            <option value="광주시">광주시</option>
+            <option value="구리시">구리시</option>
+            <option value="군포시">군포시</option>
+            <option value="김포시">김포시</option>
+            <option value="남양주시">남양주시</option>
+            <option value="동두천시">동두천시</option>
+            <option value="부천시">부천시</option>
+            <option value="성남시">성남시</option>
+            <option value="수원시" selected>수원시</option>
+            <option value="시흥시">시흥시</option>
+            <option value="안산시">안산시</option>
+            <option value="안성시">안성시</option>
+            <option value="안양시">안양시</option>
+            <option value="양주시">양주시</option>
+            <option value="양평군">양평군</option>
+            <option value="여주시">여주시</option>
+            <option value="연천군">연천군</option>
+            <option value="오산시">오산시</option>
+            <option value="용인시">용인시</option>
+            <option value="의왕시">의왕시</option>
+            <option value="의정부시">의정부시</option>
+            <option value="이천시">이천시</option>
+            <option value="파주시">파주시</option>
+            <option value="평택시">평택시</option>
+            <option value="포천시">포천시</option>
+            <option value="하남시">하남시</option>
+            <option value="화성시">화성시</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label for="storeName">서점 이름</label>
+        <input type="text" id="storeName" placeholder="예: 햇살문고">
+    </div>
+
+    <div class="form-group">
+        <label for="address">서점 도로명 주소 (지도 표시용)</label>
+        <input type="text" id="address" placeholder="예: 경기도 수원시 팔달구 효원로 295">
+    </div>
+
+    <div class="form-group">
+        <label for="balance">현재 기부금 잔액 (원)</label>
+        <input type="number" id="balance" placeholder="예: 500000">
+    </div>
+
+    <div class="form-group">
+        <label for="policy">서점 운영 정책</label>
+        <textarea id="policy" placeholder="운영 정책 입력..."></textarea>
+    </div>
+
+    <div class="btn-group">
+        <button onclick="saveStoreData()">정보 저장 / 수정</button>
+        <button class="delete-btn" onclick="deleteStoreData()">서점 삭제</button>
+    </div>
+
+    <div class="status-box">
+        <h3 style="margin-top:0;">📢 선택 서점 정보 미리보기</h3>
+        <p><strong>서점명:</strong> <span id="previewName">-</span></p>
+        <p><strong>소재지:</strong> [<span id="previewCity">-</span>] <span id="previewAddress">-</span></p>
+        <p><strong>잔액:</strong> <span id="previewBalance">-</span> 원</p>
+        <p><strong>운영 정책:</strong></p>
+        <div class="policy-preview" id="previewPolicy">-</div>
+    </div>
+</div>
+
+</body>
+</html>
