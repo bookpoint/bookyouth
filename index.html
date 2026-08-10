@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>청소년 책사줄게 - 서점 잔액 & 위치 조회</title>
-    <!-- 카카오맵 API -->
+    <!-- 카카오맵 API (https 명시 및 자바스크립트 키 적용) -->
     <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=1c9c405c6220a2a05886c680d8690e6a&libraries=services"></script>
     <style>
         * { box-sizing: border-box; }
@@ -36,7 +36,7 @@
             font-size: 14px;
         }
         
-        #map { width: 100%; height: 320px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #ccc; }
+        #map { width: 100%; height: 320px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #ccc; background-color: #eee; }
         
         .store-card {
             background: white; border-radius: 12px; padding: 18px;
@@ -130,13 +130,13 @@
   let geocoder = null;
   let markers = [];
 
-  // 지도 안전 초기화
+  // 카카오 지도 안전 생성 함수
   function initMap() {
       try {
-          if (typeof kakao !== 'undefined' && kakao.maps) {
+          if (window.kakao && window.kakao.maps) {
               const container = document.getElementById('map');
               const options = {
-                  center: new kakao.maps.LatLng(37.2635727, 127.0286009),
+                  center: new kakao.maps.LatLng(37.2635727, 127.0286009), // 기본 중심점 (경기도)
                   level: 8
               };
               map = new kakao.maps.Map(container, options);
@@ -146,11 +146,11 @@
               }
           }
       } catch (e) {
-          console.log("지도 로드 대기 중...");
+          console.error("카카오 지도 초기화 오류:", e);
       }
   }
 
-  // Firebase 실시간 데이터 감지
+  // 데이터베이스 수신
   const storesRef = ref(db, 'stores');
   onValue(storesRef, (snapshot) => {
       const data = snapshot.val();
@@ -158,7 +158,7 @@
       filterStores();
   });
 
-  // 검색 필터링 로직
+  // 검색 필터링
   window.filterStores = function() {
       const selectedCity = document.getElementById('cityFilter').value;
       const query = document.getElementById('searchInput').value.toLowerCase().trim();
@@ -176,11 +176,11 @@
       renderStores(filtered);
   }
 
-  // 이벤트 리스너 연결
+  // 이벤트 연결
   document.getElementById('cityFilter').addEventListener('change', filterStores);
   document.getElementById('searchInput').addEventListener('keyup', filterStores);
 
-  // 서점 목록 화면 출력
+  // 서점 카드 및 지도 핀 출력
   window.renderStores = function(stores) {
       const storeList = document.getElementById('storeList');
       storeList.innerHTML = '';
@@ -190,7 +190,7 @@
           return;
       }
 
-      // 기존 마커 제거
+      // 이전 핀 삭제
       markers.forEach(m => m.setMap(null));
       markers = [];
 
@@ -212,7 +212,7 @@
           `;
           storeList.appendChild(card);
 
-          // 지도 핀 표시 (에러 방지 예외 처리)
+          // 지도 상 좌표 검색 후 마커 생성
           if (map && geocoder) {
               const searchAddr = item.address || (item.city + " " + name);
               if (searchAddr) {
@@ -224,6 +224,7 @@
                               position: coords
                           });
                           markers.push(marker);
+                          map.setCenter(coords); // 최근 서점 위치로 중심점 이동
                       }
                   });
               }
@@ -231,10 +232,10 @@
       }
   }
 
-  // 페이지 로드 시 지도 준비
-  window.onload = function() {
+  // 페이지 로드 완료 시 지도 초기화 실행
+  window.addEventListener('load', () => {
       initMap();
-  };
+  });
 </script>
 
 </body>
