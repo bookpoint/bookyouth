@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>청소년 책사줄게 - 지역 서점 지원 플랫폼</title>
-    <!-- 카카오 지도 API & 주소-좌표 변환 서비스(services) -->
+    <!-- 카카오 지도 API & 주소-좌표 변환 서비스 -->
     <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=1c9c405c6220a2a05886c680d8690e6a&libraries=services&autoload=false"></script>
     <style>
         * { box-sizing: border-box; }
@@ -57,7 +57,6 @@
 </header>
 
 <div class="container">
-    <!-- 지역 선택 필터 -->
     <div class="filter-section">
         <label for="cityFilter">📍 지역 선택:</label>
         <select id="cityFilter">
@@ -75,13 +74,11 @@
         </select>
     </div>
 
-    <!-- 카카오 지도 영역 -->
     <div id="mapSection">
         <div id="map"></div>
         <div class="map-guide-text">💡 아래 서점 카드를 클릭하면 지도가 해당 서점 위치로 이동합니다!</div>
     </div>
 
-    <!-- 서점 목록 -->
     <div class="store-list-title">🏪 서점목록 및 기부금 잔액</div>
     <div id="storeList" class="store-list-container">
         <div class="no-data">서점 정보를 불러오는 중입니다...</div>
@@ -111,18 +108,16 @@
   let activeInfoWindow = null;
   let allStores = {};
 
-  // 1. 카카오 지도 안전 초기화
   function initKakaoMap() {
       if (window.kakao && window.kakao.maps) {
           kakao.maps.load(() => {
               const container = document.getElementById('map');
               const options = {
-                  center: new kakao.maps.LatLng(37.4082, 127.2582), // 기본 경기도 광주시
+                  center: new kakao.maps.LatLng(37.4082, 127.2582),
                   level: 7
               };
               map = new kakao.maps.Map(container, options);
-              geocoder = new kakao.maps.services.Geocoder(); // 주소 변환 객체 생성
-              
+              geocoder = new kakao.maps.services.Geocoder();
               renderStores();
           });
       }
@@ -130,7 +125,6 @@
 
   initKakaoMap();
 
-  // 2. 파이어베이스 데이터 수신
   const storesRef = ref(db, 'stores');
   onValue(storesRef, (snapshot) => {
       allStores = snapshot.val() || {};
@@ -139,13 +133,11 @@
 
   document.getElementById('cityFilter').addEventListener('change', renderStores);
 
-  // 3. 서점 카드 렌더링 및 위치 처리
   function renderStores() {
       const selectedCity = document.getElementById('cityFilter').value;
       const listContainer = document.getElementById('storeList');
       listContainer.innerHTML = '';
 
-      // 기존 선택 마커 제거
       if (activeMarker) activeMarker.setMap(null);
       if (activeInfoWindow) activeInfoWindow.close();
 
@@ -161,7 +153,6 @@
 
           count++;
 
-          // 카드 생성
           const card = document.createElement('div');
           card.className = 'store-card';
           card.innerHTML = `
@@ -180,11 +171,9 @@
               <div class="store-policy">${item.policy || '운영 정책 정보가 없습니다.'}</div>
           `;
 
-          // [핵심] 카드 클릭 시 위치 추적 (어드민 좌표 + 주소 자동 변환 2중 보장)
           card.addEventListener('click', () => {
               document.querySelectorAll('.store-card').forEach(c => c.classList.remove('active'));
               card.classList.add('active');
-
               moveToStoreLocation(name, item);
           });
 
@@ -196,38 +185,28 @@
       }
   }
 
-  // 4. 서점 위치로 지도 이동 함수 (좌표 자동 보정 및 주소 검색 지원)
   function moveToStoreLocation(name, item) {
       if (!map) return;
 
-      // 상단 지도 위치로 부드럽게 스크롤
       document.getElementById('mapSection').scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-      // 이전 마커/풍선도움말 제거
       if (activeMarker) activeMarker.setMap(null);
       if (activeInfoWindow) activeInfoWindow.close();
 
-      // 위도/경도 숫자 변환
-      let raw1 = parseFloat(item.lat || item.latitude);
-      let raw2 = parseFloat(item.lng || item.longitude);
+      let lat = parseFloat(item.lat || item.latitude);
+      let lng = parseFloat(item.lng || item.longitude);
 
-      let lat = null;
-      let lng = null;
+      // 만약 저장된 좌표가 광주시청 기본값(37.4082, 127.2582)이거나 좌표가 없다면, 주소로 정확한 정밀 위치를 다시 검색!
+      const isDefaultCoords = (Math.abs(lat - 37.4082) < 0.001 && Math.abs(lng - 127.2582) < 0.001);
 
-      // 좌표 값이 들어왔다면 위도(30~38대), 경도(120~130대) 판별
-      if (!isNaN(raw1) && !isNaN(raw2)) {
-          if (raw1 > 100) { lng = raw1; lat = raw2; } // 숫자가 반대로 들어왔을 경우 보정
-          else { lat = raw1; lng = raw2; }
-      }
-
-      // 1) DB에 올바른 좌표 정보가 있는 경우
-      if (lat && lng) {
+      if (!isDefaultCoords && !isNaN(lat) && !isNaN(lng)) {
           const coords = new kakao.maps.LatLng(lat, lng);
           displayMarkerOnMap(name, item, coords);
-      } 
-      // 2) DB에 좌표가 없거나 잘못되었을 때 -> 주소(address)로 실시간 위치 검색!
-      else if (item.address && geocoder) {
-          geocoder.addressSearch(item.address, function(result, status) {
+      } else if (item.address && geocoder) {
+          // '1층', '101호' 등 건물 상세정보를 제거하여 정밀 검색률 향상
+          const cleanAddress = item.address.replace(/\s(1층|2층|3층|지하1층|[0-9]+호|[0-9]+동).*/g, '').trim();
+
+          geocoder.addressSearch(cleanAddress, function(result, status) {
               if (status === kakao.maps.services.Status.OK) {
                   const coords = new kakao.maps.LatLng(result[0].y, result[0].x);
                   displayMarkerOnMap(name, item, coords);
@@ -236,11 +215,10 @@
               }
           });
       } else {
-          alert('해당 서점의 위치(좌표/주소) 정보가 등록되어 있지 않습니다.');
+          alert('해당 서점의 위치 정보가 정확하지 않습니다.');
       }
   }
 
-  // 지도 상에 마커 및 안내 풍선 표시
   function displayMarkerOnMap(name, item, coords) {
       map.relayout();
       map.setCenter(coords);
