@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>청소년 책사줄게 - 지역 서점 지원 플랫폼</title>
-    <!-- 카카오 지도 API & 주소-좌표 변환 서비스 -->
-    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=bb742e51ef4ef3938474c5fe8df9e665&libraries=services&autoload=false"></script>
+    <!-- 대표 Default JS Key 반영 및 카카오 지도 API 호출 -->
+    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=bb742e51ef4ef3938474c5fe8df9e665&libraries=services"></script>
     <style>
         * { box-sizing: border-box; }
         body { font-family: 'Noto Sans KR', sans-serif; margin: 0; padding: 0; background-color: #f8f9fa; color: #333; }
@@ -16,17 +16,14 @@
 
         .container { max-width: 900px; margin: 20px auto; padding: 0 15px; }
 
-        /* 필터 영역 */
         .filter-section { background: white; padding: 15px 20px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
         .filter-section label { font-weight: bold; }
-        .filter-section select { padding: 8px 12px; border-radius: 6px; border: 1px solid #ccc; font-size: 15px; }
+        .filter-section select { padding: 8px 12px; border-radius: 6px; border: 1px solid #ccc; font-size: 15px; min-width: 160px; }
 
-        /* 지도 영역 */
         #mapSection { transition: all 0.3s ease; margin-bottom: 25px; }
         #map { width: 100%; height: 380px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); background: #e9ecef; }
         .map-guide-text { font-size: 13px; color: #007bff; text-align: center; margin-top: 8px; font-weight: 500; }
 
-        /* 서점 목록 */
         .store-list-title { font-size: 20px; font-weight: bold; margin-bottom: 15px; border-left: 4px solid #007bff; padding-left: 10px; }
         .store-list-container { display: flex; flex-direction: column; gap: 15px; }
         
@@ -59,18 +56,9 @@
 <div class="container">
     <div class="filter-section">
         <label for="cityFilter">📍 지역 선택:</label>
+        <!-- 동적으로 서점이 등록된 시/군만 생성되는 드롭다운 -->
         <select id="cityFilter">
-            <option value="전체">경기도 전체</option>
-            <option value="가평군">가평군</option><option value="고양시">고양시</option><option value="과천시">과천시</option>
-            <option value="광명시">광명시</option><option value="광주시" selected>광주시</option><option value="구리시">구리시</option>
-            <option value="군포시">군포시</option><option value="김포시">김포시</option><option value="남양주시">남양주시</option>
-            <option value="동두천시">동두천시</option><option value="부천시">부천시</option><option value="성남시">성남시</option>
-            <option value="수원시">수원시</option><option value="시흥시">시흥시</option><option value="안산시">안산시</option>
-            <option value="안성시">안성시</option><option value="양주시">양주시</option><option value="양평군">양평군</option>
-            <option value="여주시">여주시</option><option value="연천군">연천군</option><option value="오산시">오산시</option>
-            <option value="용인시">용인시</option><option value="의왕시">의왕시</option><option value="의정부시">의정부시</option>
-            <option value="이천시">이천시</option><option value="파주시">파주시</option><option value="평택시">평택시</option>
-            <option value="포천시">포천시</option><option value="하남시">하남시</option><option value="화성시">화성시</option>
+            <option value="전체">전체 (모든 지역)</option>
         </select>
     </div>
 
@@ -108,31 +96,66 @@
   let activeInfoWindow = null;
   let allStores = {};
 
-  function initKakaoMap() {
+  // 지도 초기화 함수
+  function initMap() {
+      const container = document.getElementById('map');
       if (window.kakao && window.kakao.maps) {
-          kakao.maps.load(() => {
-              const container = document.getElementById('map');
-              const options = {
-                  center: new kakao.maps.LatLng(37.4082, 127.2582),
-                  level: 7
-              };
-              map = new kakao.maps.Map(container, options);
-              geocoder = new kakao.maps.services.Geocoder();
-              renderStores();
-          });
+          const options = {
+              center: new kakao.maps.LatLng(37.4082, 127.2582), // 기본 초기 좌표
+              level: 4
+          };
+          map = new kakao.maps.Map(container, options);
+          geocoder = new kakao.maps.services.Geocoder();
       }
   }
 
-  initKakaoMap();
+  window.addEventListener('load', () => {
+      initMap();
+  });
 
+  // DB 실시간 수신
   const storesRef = ref(db, 'stores');
   onValue(storesRef, (snapshot) => {
       allStores = snapshot.val() || {};
-      renderStores();
+      updateCityDropdown(); // 존재하는 시/군으로 필터 옵션 업데이트
+      renderStores();        // 가나다순 정렬 및 화면 구성
   });
 
   document.getElementById('cityFilter').addEventListener('change', renderStores);
 
+  // 1. 등록된 데이터가 있는 시/군만 드롭다운에 동적으로 추가
+  function updateCityDropdown() {
+      const cityFilter = document.getElementById('cityFilter');
+      const currentSelected = cityFilter.value || '전체';
+
+      // 현재 등록된 서점들의 시/군 추출 (중복 제거)
+      const activeCities = new Set();
+      for (let key in allStores) {
+          const city = allStores[key].city;
+          if (city) activeCities.add(city);
+      }
+
+      // 가나다순 정렬
+      const sortedCities = Array.from(activeCities).sort();
+
+      // 드롭다운 재구성
+      cityFilter.innerHTML = '<option value="전체">전체 (모든 지역)</option>';
+      sortedCities.forEach(city => {
+          const option = document.createElement('option');
+          option.value = city;
+          option.textContent = city;
+          cityFilter.appendChild(option);
+      });
+
+      // 기존에 선택되어 있던 값이 있다면 유지, 없으면 '전체'
+      if (activeCities.has(currentSelected)) {
+          cityFilter.value = currentSelected;
+      } else {
+          cityFilter.value = '전체';
+      }
+  }
+
+  // 2. 서점 목록 바인딩 (가나다 정렬 & 첫 번째 서점 디폴트 지도 표시)
   function renderStores() {
       const selectedCity = document.getElementById('cityFilter').value;
       const listContainer = document.getElementById('storeList');
@@ -141,20 +164,25 @@
       if (activeMarker) activeMarker.setMap(null);
       if (activeInfoWindow) activeInfoWindow.close();
 
-      let count = 0;
-
-      for (let name in allStores) {
+      // 필터링 및 서점 이름 가나다 순 정렬
+      const sortedStoreNames = Object.keys(allStores).filter(name => {
           const item = allStores[name];
-          const city = item.city || '광주시';
+          if (selectedCity === '전체') return true;
+          return item.city === selectedCity;
+      }).sort((a, b) => a.localeCompare(b, 'ko'));
 
-          if (selectedCity !== '전체' && city !== selectedCity) {
-              continue;
-          }
+      if (sortedStoreNames.length === 0) {
+          listContainer.innerHTML = `<div class="no-data">선택하신 지역(${selectedCity})에 등록된 서점이 없습니다.</div>`;
+          return;
+      }
 
-          count++;
+      // 목록 카드 생성
+      sortedStoreNames.forEach((name, index) => {
+          const item = allStores[name];
+          const city = item.city || '지역미정';
 
           const card = document.createElement('div');
-          card.className = 'store-card';
+          card.className = `store-card ${index === 0 ? 'active' : ''}`; // 첫 번째 카드 강조 표시
           card.innerHTML = `
               <div class="card-header">
                   <div>
@@ -178,44 +206,51 @@
           });
 
           listContainer.appendChild(card);
-      }
+      });
 
-      if (count === 0) {
-          listContainer.innerHTML = `<div class="no-data">선택하신 지역(${selectedCity})에 등록된 서점이 없습니다.</div>`;
-      }
+      // 🔥 가나다순 첫 번째 서점의 위치를 디폴트 지도 좌표로 표시
+      const firstStoreName = sortedStoreNames[0];
+      const firstStoreData = allStores[firstStoreName];
+      moveToStoreLocation(firstStoreName, firstStoreData, false); // autoScroll = false (처음엔 자동 스크롤 안 함)
   }
 
-  function moveToStoreLocation(name, item) {
+  function moveToStoreLocation(name, item, autoScroll = true) {
+      if (!map) initMap();
       if (!map) return;
 
-      document.getElementById('mapSection').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (autoScroll) {
+          document.getElementById('mapSection').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
 
       if (activeMarker) activeMarker.setMap(null);
       if (activeInfoWindow) activeInfoWindow.close();
 
-      let lat = parseFloat(item.lat || item.latitude);
-      let lng = parseFloat(item.lng || item.longitude);
+      const addressToSearch = item.address || '';
 
-      // 만약 저장된 좌표가 광주시청 기본값(37.4082, 127.2582)이거나 좌표가 없다면, 주소로 정확한 정밀 위치를 다시 검색!
-      const isDefaultCoords = (Math.abs(lat - 37.4082) < 0.001 && Math.abs(lng - 127.2582) < 0.001);
-
-      if (!isDefaultCoords && !isNaN(lat) && !isNaN(lng)) {
-          const coords = new kakao.maps.LatLng(lat, lng);
-          displayMarkerOnMap(name, item, coords);
-      } else if (item.address && geocoder) {
-          // '1층', '101호' 등 건물 상세정보를 제거하여 정밀 검색률 향상
-          const cleanAddress = item.address.replace(/\s(1층|2층|3층|지하1층|[0-9]+호|[0-9]+동).*/g, '').trim();
+      // 주소 기반 카카오 Geocoder 실시간 조회
+      if (geocoder && addressToSearch) {
+          const cleanAddress = addressToSearch.replace(/\s(1층|2층|3층|지하1층|[0-9]+호|[0-9]+동).*/g, '').trim();
 
           geocoder.addressSearch(cleanAddress, function(result, status) {
               if (status === kakao.maps.services.Status.OK) {
                   const coords = new kakao.maps.LatLng(result[0].y, result[0].x);
                   displayMarkerOnMap(name, item, coords);
               } else {
-                  alert('서점 주소를 지도 위치로 변환할 수 없습니다.');
+                  useSavedCoords(name, item);
               }
           });
       } else {
-          alert('해당 서점의 위치 정보가 정확하지 않습니다.');
+          useSavedCoords(name, item);
+      }
+  }
+
+  function useSavedCoords(name, item) {
+      let lat = parseFloat(item.lat);
+      let lng = parseFloat(item.lng);
+
+      if (!isNaN(lat) && !isNaN(lng)) {
+          const coords = new kakao.maps.LatLng(lat, lng);
+          displayMarkerOnMap(name, item, coords);
       }
   }
 
