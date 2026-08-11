@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>청소년 책사줄게 - 지역 서점 지원 플랫폼</title>
-    <!-- 카카오 지도 API (admin.html과 동일한 스크립트 로드 방식) -->
-    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=1c9c405c6220a2a05886c680d8690e6a&libraries=services"></script>
+    <!-- 카카오 지도 API (autoload=false로 안전 로딩) -->
+    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=1c9c405c6220a2a05886c680d8690e6a&libraries=services&autoload=false"></script>
     <style>
         * { box-sizing: border-box; }
         body { font-family: 'Noto Sans KR', sans-serif; margin: 0; padding: 0; background-color: #f8f9fa; color: #333; }
@@ -22,21 +22,25 @@
         .filter-section select { padding: 8px 12px; border-radius: 6px; border: 1px solid #ccc; font-size: 15px; }
 
         /* 지도 영역 */
-        #map { width: 100%; height: 380px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-bottom: 25px; background: #e9ecef; }
+        #mapSection { transition: all 0.3s ease; margin-bottom: 25px; }
+        #map { width: 100%; height: 380px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); background: #e9ecef; }
+        .map-guide-text { font-size: 13px; color: #007bff; text-align: center; margin-top: 8px; font-weight: 500; }
 
-        /* 서점 목록 (가로 와이드형 배치) */
+        /* 서점 목록 (가로 와이드형) */
         .store-list-title { font-size: 20px; font-weight: bold; margin-bottom: 15px; border-left: 4px solid #007bff; padding-left: 10px; }
         .store-list-container { display: flex; flex-direction: column; gap: 15px; }
         
-        .store-card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); transition: transform 0.2s, box-shadow 0.2s; cursor: pointer; border: 1px solid #eee; display: flex; flex-direction: column; gap: 10px; }
-        .store-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
-        
+        .store-card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); transition: all 0.2s; cursor: pointer; border: 2px solid transparent; display: flex; flex-direction: column; gap: 10px; }
+        .store-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.1); border-color: #007bff; }
+        .store-card.active { border-color: #007bff; background-color: #f0f7ff; }
+
         .card-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f0f0f0; padding-bottom: 10px; }
         .store-tag { background: #e7f1ff; color: #007bff; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-right: 8px; }
         .store-name { font-size: 18px; font-weight: bold; color: #222; display: inline-block; }
-        .store-address { font-size: 13px; color: #666; margin-top: 4px; }
+        .click-hint { font-size: 12px; color: #007bff; font-weight: normal; margin-left: 6px; }
+        .store-address { font-size: 13px; color: #666; margin-top: 6px; }
         
-        .store-balance-box { background: #f8f9fa; padding: 8px 15px; border-radius: 6px; text-align: right; border: 1px solid #e9ecef; }
+        .store-balance-box { background: #ffffff; padding: 8px 15px; border-radius: 6px; text-align: right; border: 1px solid #e9ecef; }
         .store-balance-label { font-size: 11px; color: #777; }
         .store-balance-val { font-size: 17px; font-weight: bold; color: #28a745; }
         
@@ -72,8 +76,11 @@
         </select>
     </div>
 
-    <!-- 카카오 지도 -->
-    <div id="map"></div>
+    <!-- 카카오 지도 영역 -->
+    <div id="mapSection">
+        <div id="map"></div>
+        <div class="map-guide-text">💡 아래 서점 카드를 클릭하면 지도가 해당 서점 위치로 이동합니다!</div>
+    </div>
 
     <!-- 서점 목록 -->
     <div class="store-list-title">🏪 서점목록 및 기부금 잔액</div>
@@ -101,38 +108,51 @@
 
   let map = null;
   let markers = [];
+  let infoWindows = [];
   let allStores = {};
 
-  // 1. 카카오 지도 생성 (admin.html 구조 동일 적용)
-  const container = document.getElementById('map');
-  const options = {
-      center: new kakao.maps.LatLng(37.4082, 127.2582), // 기본 광주시 중심 위치
-      level: 7
-  };
-  map = new kakao.maps.Map(container, options);
+  // 1. 카카오 지도 안전 초기화
+  function initKakaoMap() {
+      if (window.kakao && window.kakao.maps) {
+          kakao.maps.load(() => {
+              const container = document.getElementById('map');
+              const options = {
+                  center: new kakao.maps.LatLng(37.4082, 127.2582), // 기본 경기 광주시
+                  level: 7
+              };
+              map = new kakao.maps.Map(container, options);
+              
+              // 지도가 완벽히 준비되면 DB 데이터를 다시 한번 표출
+              renderStores();
+          });
+      }
+  }
 
-  // 2. 파이어베이스 실시간 데이터 동기화
+  // 안전하게 카카오 API 로드 실행
+  initKakaoMap();
+
+  // 2. 파이어베이스 데이터 수신
   const storesRef = ref(db, 'stores');
   onValue(storesRef, (snapshot) => {
       allStores = snapshot.val() || {};
       renderStores();
   });
 
-  // 필터 변경 이벤트
   document.getElementById('cityFilter').addEventListener('change', renderStores);
 
-  // 3. 서점 카드 및 마커 표출
+  // 3. 서점 카드 및 지도 마커 렌더링
   function renderStores() {
       const selectedCity = document.getElementById('cityFilter').value;
       const listContainer = document.getElementById('storeList');
       listContainer.innerHTML = '';
 
-      // 기존 마커 지우기
+      // 기존 마커 및 인포윈도우 제거
       markers.forEach(m => m.setMap(null));
       markers = [];
+      infoWindows = [];
 
       let count = 0;
-      let bounds = new kakao.maps.LatLngBounds();
+      let bounds = (map && window.kakao && window.kakao.maps) ? new kakao.maps.LatLngBounds() : null;
 
       for (let name in allStores) {
           const item = allStores[name];
@@ -144,7 +164,7 @@
 
           count++;
 
-          // 가로 와이드형 서점 카드 생성
+          // 서점 카드 생성
           const card = document.createElement('div');
           card.className = 'store-card';
           card.innerHTML = `
@@ -152,6 +172,7 @@
                   <div>
                       <span class="store-tag">${city}</span>
                       <div class="store-name">${name}</div>
+                      <span class="click-hint">🔍 지도보기</span>
                       <div class="store-address">📍 ${item.address || '주소 정보 없음'}</div>
                   </div>
                   <div class="store-balance-box">
@@ -162,18 +183,38 @@
               <div class="store-policy">${item.policy || '운영 정책 정보가 없습니다.'}</div>
           `;
 
-          // 카드 클릭 시 이동
+          // [핵심 요구사항 2] 서점 카드 클릭 시 지도로 이동 및 핀 활성화
           card.addEventListener('click', () => {
+              // 기존 선택 카드 테두리 효과 해제 후 현재 카드 활성화
+              document.querySelectorAll('.store-card').forEach(c => c.classList.remove('active'));
+              card.classList.add('active');
+
               if (item.lat && item.lng && map) {
                   const moveLatLon = new kakao.maps.LatLng(item.lat, item.lng);
-                  map.panTo(moveLatLon);
-                  map.setLevel(4);
+                  
+                  // 1. 지도를 상단으로 부드럽게 스크롤 이동
+                  document.getElementById('mapSection').scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  
+                  // 2. 지도 중심 위치 이동 및 확대
+                  setTimeout(() => {
+                      map.relayout();
+                      map.panTo(moveLatLon);
+                      map.setLevel(4);
+                      
+                      // 해당 마커의 인포윈도우 열기
+                      if (card._infoWindow) {
+                          infoWindows.forEach(iw => iw.close());
+                          card._infoWindow.open(map, card._marker);
+                      }
+                  }, 300);
+              } else {
+                  alert('해당 서점의 위치(좌표) 정보가 등록되어 있지 않습니다.');
               }
           });
 
           listContainer.appendChild(card);
 
-          // 카카오 마커 찍기
+          // 지도 마커 등록
           if (item.lat && item.lng && map) {
               const markerPosition = new kakao.maps.LatLng(item.lat, item.lng);
               const marker = new kakao.maps.Marker({
@@ -183,34 +224,34 @@
               marker.setMap(map);
               markers.push(marker);
 
-              bounds.extend(markerPosition);
+              if (bounds) bounds.extend(markerPosition);
 
+              // 풍선 도움말(인포윈도우)
               const iwContent = `
                   <div style="padding:10px;font-size:12px;width:180px;text-align:center;">
-                      <strong>${name}</strong><br>
+                      <strong style="font-size:13px;color:#007bff;">${name}</strong><br>
                       <span style="color:#28a745;font-weight:bold;">잔액: ${Number(item.balance||0).toLocaleString()}원</span>
                   </div>
               `;
               const infowindow = new kakao.maps.InfoWindow({ content: iwContent });
+              infoWindows.push(infowindow);
+
+              // 카드 객체에 마커와 인포윈도우 연결
+              card._marker = marker;
+              card._infoWindow = infowindow;
 
               kakao.maps.event.addListener(marker, 'click', function() {
+                  infoWindows.forEach(iw => iw.close());
                   infowindow.open(map, marker);
               });
           }
       }
 
-      // 지도 레이아웃 재계산 및 센터 조정
-      if (map) {
-          map.relayout();
-      }
-
+      // 데이터가 없을 때
       if (count === 0) {
           listContainer.innerHTML = `<div class="no-data">선택하신 지역(${selectedCity})에 등록된 서점이 없습니다.</div>`;
-          if (map) {
-              map.setCenter(new kakao.maps.LatLng(37.4082, 127.2582));
-              map.setLevel(7);
-          }
-      } else if (markers.length > 0 && map) {
+      } else if (markers.length > 0 && map && bounds) {
+          map.relayout();
           map.setBounds(bounds);
       }
   }
